@@ -116,17 +116,24 @@ df2tabix<-function(df,outfile,rm.file=TRUE,append = FALSE){
 #' @param dir directory of subfiles to be merged
 #' @param pattern a pattern in the file names
 #' @param filename output file name
+#' @param tabixHead optional header to prepend to the file
 #' @param sort sort list of subfiles in alpha, numerical way
 #' 
 #' @usage catsub2tabix(dir,pattern,filename,sort=F)
 #' @noRd
-catsub2tabix<-function(dir,pattern,filename,sort=FALSE){
+catsub2tabix<-function(dir,pattern,filename,tabixHead=NULL,sort=FALSE){
   
   outfile= file.path(path.expand(dir),filename) # get file name 
   if(file.exists(outfile)){
     message("overwriting ",outfile)
     unlink(outfile)
   }
+  
+  if(!is.null(tabixHead)) {
+    
+    write(tabixHead,outfile)
+  }
+  
   subfiles <- list.files(path = dir, pattern = pattern,full.names=TRUE)
   if(sort) {subfiles <- gtools::mixedsort(subfiles)}
   
@@ -238,6 +245,24 @@ makeMethTabix<-function(filepath,skip=0,rm.file=TRUE){
 #' @noRd
 obj2tabix <- function(obj,filename,rm.txt=TRUE){
   
+  ## create the header from the slots
+  tabixHead <- makeTabixHeader(obj)
+  
+  ## write the header first
+  writeTabixHeader(obj,tabixHead,filename)
+  
+  # sort the data
+  df <- df[with(df,order(V1,V2,V3)),]
+  # then we write the data
+  write.table(x = df,
+              file = filename, quote = FALSE,
+              append = TRUE,col.names = FALSE,
+              row.names = FALSE,sep = "\t")
+  
+  # and make tabix out of file
+  makeMethTabix(filename,rm.file = rm.txt)
+}
+
 
 #' function to check wether tabix header exists 
 #' and exit with message instead of error
@@ -255,6 +280,14 @@ checkTabixHeader <- function(tbxFile,message=NULL) {
                    })
   
 }
+
+
+#' function to create a tabix header from an methylKit object
+#'
+#' @param tbxFile tabix file
+#' @param message text to print instead of default
+#' @noRd
+makeTabixHeader <- function(obj) {
   # first we query each slots and ... 
   tabixHead <- sapply(slotNames(obj),
                       FUN = function(i) {
@@ -268,6 +301,12 @@ checkTabixHeader <- function(tbxFile,message=NULL) {
   )
   # then we remove slots we don't need in the header (as the @.Data slot) 
   tabixHead <- tabixHead[!isEmpty(tabixHead)]
+  
+  return(tabixHead)
+
+}
+
+writeTabixHeader <- function(obj,tabixHead,filename) {
   
   # then we write the creation date ..
   write(paste0("#Date:",format(Sys.time(),'%Y-%m-%d %H:%M:%S')),
@@ -288,17 +327,31 @@ checkTabixHeader <- function(tbxFile,message=NULL) {
     write("#DT:tabix",file = filename ,append = TRUE)
     write(paste0("#NR:",nrow(df)),file = filename ,append = TRUE)
   }
-  # sort the data
-  df <- df[with(df,order(V1,V2,V3)),]
-  # then we write the data
-  write.table(x = df,
-              file = filename, quote = FALSE,
-              append = TRUE,col.names = FALSE,
-              row.names = FALSE,sep = "\t")
-  
-  # and make tabix out of file
-  makeMethTabix(filename,rm.file = rm.txt)
 }
+
+.formatTabixHeader <- function(class,numRecords=NULL,tabixHead,filename=NULL) {
+  
+  formattedTabixHead <- paste0(
+    # then we write the creation date ..
+    paste0("#Date:",format(Sys.time(),'%Y-%m-%d %H:%M:%S'),"\n"),
+    # add the class of the object
+    paste0("#Class:",class,"\n"),
+    # and number of records
+    if(!"num.records" %in% names(tabixHead) & !is.null(numRecords)) 
+      {paste0("#NR:",numRecords,"\n")},
+    # and the slots as comments 
+    paste0("#",tabixHead,collapse = "\n"),"\n",
+    # add database type
+    "#DT:tabix"
+  )
+  if(!is.null(filename)) {
+    write( formattedTabixHead,file = filename ,append = FALSE)
+  } else {
+    return(formattedTabixHead)
+  }
+}
+  
+  
 
 
 #' function to parse the information stored in the tabix header
